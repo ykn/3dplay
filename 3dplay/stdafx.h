@@ -22,3 +22,6 @@
 //#define _AFXDLL
 //#include <afxwin.h>
 
+#define _SECURE_SCL 0
+#define _ITERATOR_DEBUG_LEVEL 0
+#define GLUT_DISABLE_ATEXIT_HACK
