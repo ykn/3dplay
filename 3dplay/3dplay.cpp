@@ -28,7 +28,7 @@ HDC _hdcShot = NULL;
 HWND hWnd_target;
 int _iWidth, _iHeight;
 BOOL bCap = FALSE, bCaptured = FALSE;
-
+BOOL bGLUT_INITED = FALSE;
 BYTE* g_pTexMap = NULL;
 unsigned int g_nTexMapX = 0;
 unsigned int g_nTexMapY = 0;
@@ -36,7 +36,7 @@ unsigned int g_nTexMapY = 0;
 float* g_depth = NULL;
 float* g_pVertices3f = NULL;			// 頂点バッファ
 float* g_pNormals3f = NULL;				// 法線バッファ
-int gMainWindowID = NULL;	// 描画ウィンドウのID（gluiで使用します）
+int gMainWindowID = NULL;	// 描画ウィンドウのID（gluiで使用）
 float gTime     = 0.0;		// 時刻 t (秒)
 float gTimeMax  = 10.0;		// 時刻 t の最大値(秒)
 float gTimeMin  = 0.0;		// 時刻 t の最小値(秒)
@@ -49,7 +49,7 @@ GLUI_Translation *goCamTransrationXY;
 GLUI_Translation *goCamTransrationZ;
 int gStartElapsedTime = 0;		// アニメーション開始時のGLUT_ELAPSED_TIMEを保持する変数
 int gLoopFlag	= 1;
-double GLUING_TIME = 0.0;		// アニメーション開始からの経過時刻[sec]
+
 
 
 // ↓分割数。これを小さくすると表示が荒く、大きくすると細かくなる
@@ -259,6 +259,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		} else {
 			KillTimer( hWnd, TIMER_ID );
 			glutmain();
+
 		}
 		break;
 
@@ -407,11 +408,14 @@ void getScreenShot(int iX, int iY, int iWidth, int iHeight) {
 
     glutInit(&ac, &av);
 
+	if (bGLUT_INITED) {return;}
+	else {bGLUT_INITED=true;}
+
 	if (!GLUING_Ready()) {
 		return;
 	}
-
-    gMainWindowID = glutCreateWindow("OpenGL");
+	
+	gMainWindowID = glutCreateWindow("OpenGL");
 
     // Set glut callback functions.
 	GLUI_Master.set_glutDisplayFunc(glutDisplay);
@@ -432,8 +436,6 @@ void drawGraphics(void)
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	// アニメーション用現在時刻代入
-	GLUING_TIME = (double)gTime;
 
 	// アプリの描画ルーチン呼び出し
 	GLUING_Draw();
@@ -741,19 +743,35 @@ void GLUING_Draw (void)
 	RECT rc;
 	LPRECT lprc = &rc;
 	GetClientRect( hWnd_target, lprc );
-	HDC hdcScreen = GetDC(hWnd_target);
-	_bmpShot = CreateCompatibleBitmap(hdcScreen, 512, 512);
-	_hdcShot = CreateCompatibleDC(hdcScreen);
-	_bmpOld = (HBITMAP)SelectObject(_hdcShot, _bmpShot);
-	SetStretchBltMode(_hdcShot, HALFTONE);
-	StretchBlt(_hdcShot, 0, 0, 512, 512, hdcScreen, 0, 0, lprc->right, lprc->bottom, SRCCOPY);
-	_bmpOld = (HBITMAP)SelectObject(_hdcShot, _bmpShot);
-	ReleaseDC(NULL, hdcScreen);
+	HDC hdc_target = GetDC(hWnd_target);
 
-	BITMAP bmptemp;
-	LPBYTE lp;
-	GetObject(_bmpOld, sizeof(BITMAP), &bmptemp);
-	lp = (LPBYTE)bmptemp.bmBits;
+	int Width=512;
+	int Height=512;
+	
+	// DIB 画像格納用メモリを取得する
+	LPBITMAPINFO lpDIB = (LPBITMAPINFO)::GlobalAlloc(GPTR, sizeof(BITMAPINFO));
+
+	// DIBSection の BITMAPINFO を初期化する
+	::ZeroMemory(&lpDIB->bmiHeader, sizeof(BITMAPINFOHEADER));
+	lpDIB->bmiHeader.biSize		= sizeof(BITMAPINFOHEADER);
+	lpDIB->bmiHeader.biWidth	   = Width;
+	lpDIB->bmiHeader.biHeight	  = Height;
+	lpDIB->bmiHeader.biPlanes	  = 1;
+	lpDIB->bmiHeader.biBitCount	= 24;
+	lpDIB->bmiHeader.biCompression = BI_RGB;
+	lpDIB->bmiHeader.biSizeImage   = Width * Height * 3;  // 24bit Color フル画面
+
+	// 画面キャプチャ用の DIBSection を作成する
+	LPBYTE lpBMP;
+	HBITMAP hDIB = ::CreateDIBSection(
+		hdc_target, lpDIB, DIB_RGB_COLORS, (LPVOID*)&lpBMP, NULL, 0
+	);
+
+	HDC hMemDC = ::CreateCompatibleDC(hdc_target);
+	HGDIOBJ hOldDIB = ::SelectObject(hMemDC, hDIB);			
+	//::BitBlt(hMemDC, 0, 0, Width, Height, hdc_target, 0, 0, SRCCOPY);
+	//::SetStretchBltMode(hMemDC, HALFTONE);
+	::StretchBlt(hMemDC, 0, Height-1, Width, -Height, hdc_target, 0,0,lprc->right, lprc->bottom, SRCCOPY);
 
 	// 頂点座標初期化
 	for (unsigned int y = 0; y < g_nPolyY; ++y)
@@ -773,37 +791,34 @@ void GLUING_Draw (void)
 	for (int y=0; y < 512; ++y)
 	{
 		py = y * g_nPolyY / 512;
-
-		//const XnDepthPixel* pDepth = pDepthRow;
-		//XnRGB24Pixel* pTex = pTexRow + g_depthMD.XOffset();
-
+		
 		for (int x = 0; x < 512; ++x)
 		{
-			blue = lp[n];
-			green = lp[n+1];
-			red = lp[n+2];
+			blue = lpBMP[n];
+			green = lpBMP[n+1];
+			red = lpBMP[n+2];
 			n+=3;
 
-			Depth = ((red   & 2) << 6) + ((red   & 1) << 4) +
-				    ((green & 2) << 5) + ((green & 1) << 3) +
-					((blue  & 2) << 4) + ((blue  & 1) << 2);
+			Depth = ((red   & 2) << 4) + ((red   & 1) << 2) +
+				    ((green & 2) << 3) + ((green & 1) << 1) +
+					((blue  & 2) << 2) + ((blue  & 1));
 
 
 			px = x * g_nPolyX / 512;
 
 			if (Depth != 0)	// 深度0となっている画素は平均値の計算から除く
 			{
-				float DepthValue = 0;
-				
-				if ( Depth < 2500) {
-					DepthValue = (float)(Depth - 500.0) * 0.048;
-				} else {
-					DepthValue = 0.012 *(float)(Depth - 2500.0) + 96.0;
-				}
+				//float DepthValue = 0;
+				//
+				//if ( Depth < 2500) {
+				//	DepthValue = (float)(Depth - 500.0) * 0.048;
+				//} else {
+				//	DepthValue = 0.012 *(float)(Depth - 2500.0) + 96.0;
+				//}
 
 				// Z値の集計
-				g_pVertices3f[(py * g_nPolyX + px) * 3 + 2] +=  128.0 - (float)DepthValue;	// 頂点ベクトルの第3要素に入れておく（ホントは値が違うけど）
-
+				//g_pVertices3f[(py * g_nPolyX + px) * 3 + 2] +=  128-(float)DepthValue;	// 頂点ベクトルの第3要素に入れておく（ホントは値が違うけど）
+				g_pVertices3f[(py * g_nPolyX + px) * 3 + 2] +=  (float)Depth;
 				// 面積の集計
 				g_pVertices3f[(py * g_nPolyX + px) * 3] += 1.0;		// 頂点ベクトルの第1要素に入れておく（ホントは用途が違うけど）
 			}
@@ -828,7 +843,7 @@ void GLUING_Draw (void)
 			} else {
 				// 奥行き計測面積ゼロなら奥行きゼロとする
 				//g_pVertices3f[index + 2] = 0;
-				g_pVertices3f[index + 2] = -10.0;
+				g_pVertices3f[index + 2] = -5.0;
 			}
 
 			g_pVertices3f[index] = dx * (float)x + xoffset;			// X座標
@@ -842,7 +857,7 @@ void GLUING_Draw (void)
 	glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP_SGIS, GL_TRUE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexImage2D(GL_TEXTURE_2D, 0, 3, bmptemp.bmWidth, bmptemp.bmHeight, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, bmptemp.bmBits);
+	glTexImage2D(GL_TEXTURE_2D, 0, 3, Width, Height, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, lpBMP);
 
 	// Display the OpenGL texture map
 	glColor4f(1,1,1,1);
@@ -876,11 +891,11 @@ void GLUING_Draw (void)
 			// 閾値以上離れているメッシュの処理
 			if (abs(pUR[2] - pUL[2]) > SPLIT_THRESHOLD || abs(pBR[2] - pBL[2]) > SPLIT_THRESHOLD
 				|| abs(pBL[2] - pUL[2]) > SPLIT_THRESHOLD || abs(pBR[2] - pUR[2]) > SPLIT_THRESHOLD) {
-// ちょっとトリッキーな書き方だけど、#ifの値で表示方法の選択ができる
+// #ifの値で表示方法の選択ができる
 // ↓ 1…離れたポリゴンは切り離す，0…切り離さず色を変える
 #if 1
-					glColor4f(1.0, 1.0, 1.0, 0.001);
-					//continue;					// 描画しない。つまり隣のポリゴンと切り離す
+					//glColor4f(1.0, 1.0, 1.0, 0.001);
+					continue;					// 描画しない。つまり隣のポリゴンと切り離す
 #else
 					glColor3f(0.0, 1.0, 0.0);	// 切り離さず緑にする
 #endif
@@ -921,5 +936,13 @@ void GLUING_Draw (void)
 	}
 
 	glEnd();
+
+	// 後片付け
+	::SelectObject(hMemDC, hOldDIB);
+	::DeleteDC(hdc_target);
+	::DeleteDC(hMemDC);
+	::DeleteObject(hDIB);
+	::GlobalFree(lpDIB);
+
 }
 
