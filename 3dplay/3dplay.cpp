@@ -32,6 +32,9 @@ BOOL bGLUT_INITED = FALSE;
 BYTE* g_pTexMap = NULL;
 unsigned int g_nTexMapX = 0;
 unsigned int g_nTexMapY = 0;
+BOOL bGL_START=FALSE, bGL_INITED=FALSE;
+
+HWND hWnd_main;
 
 float* g_depth = NULL;
 float* g_pVertices3f = NULL;			// 頂点バッファ
@@ -116,6 +119,11 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 		}
+
+		if (bGL_START && !bGL_INITED) {
+			::DestroyWindow(hWnd_main);	
+			glutmain();
+		}
 	}
 	return (int) msg.wParam;
 }
@@ -181,7 +189,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX ,
 			CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, NULL, NULL, hInstance, NULL);
 
-
+	hWnd_main=hWnd;
 	if (!hWnd)
 	{
 		return FALSE;
@@ -242,25 +250,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		InvalidateRect( hWnd, NULL, FALSE);
 		break;
 	case WM_PAINT:
-        if (!bCaptured) {
-			if (!bCap) {
-				RECT rc;
-				LPRECT lprc = &rc;
-				GetClientRect( hWnd_target, lprc );
-				getScreenShot(pos.x, pos.y, lprc->right, lprc->bottom);
-				hdc = BeginPaint(hWnd, &ps);
-				if (_bmpShot != NULL) {
-					BitBlt(hdc, 0, 0, 640, 480, _hdcShot, 0, 0, SRCCOPY);
-				}
-				EndPaint(hWnd, &ps);
-				ReleaseDC( hWnd, hdc );
-				
-			}
-		} else {
-			KillTimer( hWnd, TIMER_ID );
-			glutmain();
-
-		}
+  //      if (!bCaptured) {
+		//	if (!bCap) {
+		//		//RECT rc;
+		//		//LPRECT lprc = &rc;
+		//		//GetClientRect( hWnd_target, lprc );
+		//		//getScreenShot(pos.x, pos.y, lprc->right, lprc->bottom);
+		//		//hdc = BeginPaint(hWnd, &ps);
+		//		//if (_bmpShot != NULL) {
+		//		//	BitBlt(hdc, 0, 0, 640, 480, _hdcShot, 0, 0, SRCCOPY);
+		//		//}
+		//		//EndPaint(hWnd, &ps);
+		//		//ReleaseDC( hWnd, hdc );
+		//		//bGL_START=TRUE;
+		//	}
+		//} else {
+		//	KillTimer( hWnd, TIMER_ID );
+		//}
 		break;
 
     case WM_LBUTTONDOWN:
@@ -285,21 +291,24 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				SetCursor(LoadCursor(NULL, IDC_ARROW));
         break;
     case WM_LBUTTONUP:
-		SetCursor(LoadCursor(NULL, IDC_ARROW));
-		ReleaseCapture();
-		bCap = FALSE;
-		{
-			RECT rc;
-			LPRECT lprc = &rc;
-			GetClientRect( hWnd_target, lprc );
-			getScreenShot(pos.x, pos.y, lprc->right, lprc->bottom);
-			hdc = BeginPaint(hWnd, &ps);
-			if (_bmpShot != NULL) {
-				BitBlt(hdc, 0, 0, 640, 480, _hdcShot, 0, 0, SRCCOPY);
-				bCaptured = TRUE;
+		if (bCap) {
+			SetCursor(LoadCursor(NULL, IDC_ARROW));
+			ReleaseCapture();
+			bCap = FALSE;
+			{
+				RECT rc;
+				LPRECT lprc = &rc;
+				GetClientRect( hWnd_target, lprc );
+				getScreenShot(pos.x, pos.y, lprc->right, lprc->bottom);
+				hdc = BeginPaint(hWnd, &ps);
+				if (_bmpShot != NULL) {
+					BitBlt(hdc, 0, 0, 640, 480, _hdcShot, 0, 0, SRCCOPY);
+					bCaptured = TRUE;
+				}
+				EndPaint(hWnd, &ps);
+				ReleaseDC( hWnd, hdc );	
+				bGL_START=TRUE;
 			}
-			EndPaint(hWnd, &ps);
-			ReleaseDC( hWnd, hdc );		
 		}
         break;
     case WM_CREATE:
@@ -314,7 +323,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			DeleteObject(_hdcShot);
 		}
 		//KillTimer( hWnd, TIMER_ID );
-		PostQuitMessage(0);
+		//PostQuitMessage(0);
 		break;
 	default:
 		return DefWindowProc(hWnd, message, wParam, lParam);
@@ -400,7 +409,8 @@ void getScreenShot(int iX, int iY, int iWidth, int iHeight) {
 
  void glutmain()
 {
-    glutInitWindowSize(640, 480);
+    bGL_INITED=TRUE;
+	glutInitWindowSize(640, 480);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
 	
 	int ac=1; //fake argc
